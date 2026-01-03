@@ -131,6 +131,10 @@ return (t, s) => {
 }
 ```
 
+## Future work. 
+
+- Have the LLMs listen through CLAP or multimodal llms.
+
 ---
 
 *Vibecoded: the human pointed, the LLM typed.*
