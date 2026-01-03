@@ -2,9 +2,16 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
+const CONFIG_FILE = 'config.json';
 const FILE_TO_WATCH = 'music.js';
-const PORT = 8080;
-const SAMPLES_DIR = '/Users/nicolasjonason/Music Assets';
+
+let config = { samplesDir: '', port: 8080 };
+try {
+    config = { ...config, ...JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) };
+} catch (e) { }
+
+const PORT = config.port;
+const SAMPLES_DIR = config.samplesDir;
 
 // Cache of all audio files in samples dir
 let sampleCache = [];
@@ -30,7 +37,6 @@ function scanSamplesDir() {
         } catch (e) { }
     }
     scanDir(SAMPLES_DIR);
-    console.log(`Indexed ${sampleCache.length} samples from ${SAMPLES_DIR}`);
 }
 
 function searchSamples(query) {
@@ -48,7 +54,6 @@ if (t % 4 === 0) notes.push({ p: 36, w: 'drums', v: 0.9 });
 return notes;
 };
 `.trim());
-    console.log(`Created ${FILE_TO_WATCH}`);
 }
 
 const server = http.createServer((req, res) => {
@@ -82,7 +87,10 @@ const server = http.createServer((req, res) => {
     } else if (url.pathname === '/search') {
         const query = url.searchParams.get('q') || '';
         const results = searchSamples(query);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'public, max-age=60'  // Cache search results for 1 min
+        });
         res.end(JSON.stringify(results.map((s, i) => ({ index: i, name: s.name, path: s.relativePath }))));
     } else if (url.pathname === '/sample') {
         const samplePath = url.searchParams.get('path');
@@ -97,7 +105,9 @@ const server = http.createServer((req, res) => {
             res.end('Forbidden');
             return;
         }
-        fs.readFile(fullPath, (err, data) => {
+
+        // Check file exists before streaming
+        fs.stat(fullPath, (err, stats) => {
             if (err) {
                 res.writeHead(404);
                 res.end('Not found');
@@ -112,8 +122,13 @@ const server = http.createServer((req, res) => {
                 '.ogg': 'audio/ogg',
                 '.m4a': 'audio/mp4'
             };
-            res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
-            res.end(data);
+            // Stream file instead of loading into memory
+            res.writeHead(200, {
+                'Content-Type': mimeTypes[ext] || 'application/octet-stream',
+                'Content-Length': stats.size,
+                'Cache-Control': 'public, max-age=3600'  // Cache for 1 hour
+            });
+            fs.createReadStream(fullPath).pipe(res);
         });
     } else {
         res.writeHead(404);
@@ -123,8 +138,4 @@ const server = http.createServer((req, res) => {
 
 scanSamplesDir();
 
-server.listen(PORT, () => {
-    console.log(`Live Link Server running at http://localhost:${PORT}`);
-    console.log(`Edit ${FILE_TO_WATCH} to see changes in the browser.`);
-    console.log(`Samples dir: ${SAMPLES_DIR}`);
-});
+server.listen(PORT);

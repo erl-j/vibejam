@@ -1,4 +1,21 @@
-# livecoding-js
+```
+  __            _    _   _                   _     
+ / _|_   _ _ _ | | _| |_(_) ___  _ __       (_)___ 
+| |_| | | | ' \| |/ / __| |/ _ \| '_ \      | / __|
+|  _| |_| | | ||   <| |_| | (_) | | | |  _  | \__ \
+|_|  \__,_|_| ||_|\_\\__|_|\___/|_| |_| (_)_/ |___/
+             |_|                          |__/     
+```
+
+```
+.・。.・゜✭・.・✫・゜・。.  VIBECODED  .・。.・゜✭・.・✫・゜・。.
+```
+*The human pointed, the LLM typed. Bugs are a collaboration.*
+*If something breaks, neither of us fully understood what we were doing.*
+*Works on my machine. Probably.*
+```
+・。.・゜✭・.・✫・゜・。.・。.・゜✭・.・✫・゜・。.・。.・゜✭・.・✫・゜
+```
 
 Browser-based livecoding environment for algorithmic music. Write JavaScript functions that generate notes in real-time.
 
@@ -131,5 +148,3 @@ return (t, s) => {
 - MIDI output support
 - Sample search with boolean operators
 - Per-note exclusive IDs (retrigger/cut behavior)
-
-# funktion-js

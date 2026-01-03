@@ -4,110 +4,68 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Minimalist Livecoding Environment</title>
+    <title>Livecoding</title>
 
-    <!-- React & ReactDOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-
-    <!-- Babel for JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-
     <style>
+        * {
+            box-sizing: border-box;
+        }
+
         body {
-            background-color: #0f172a;
-            color: #e2e8f0;
-            font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+            background-color: #fafafa;
+            color: #1a1a1a;
+            font-family: 'Times New Roman', Times, serif;
             margin: 0;
             overflow: hidden;
-        }
-
-        .tape-container {
-            mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
-            -webkit-mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
-        }
-
-        /* Custom scrollbar */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: #0f172a;
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: #334155;
-            border-radius: 4px;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: #475569;
         }
 
         input[type=range] {
             -webkit-appearance: none;
             background: transparent;
+            width: 100%;
         }
 
         input[type=range]::-webkit-slider-thumb {
             -webkit-appearance: none;
-            height: 16px;
-            width: 16px;
+            height: 12px;
+            width: 12px;
             border-radius: 50%;
-            background: #6366f1;
-            margin-top: -6px;
+            background: #1a1a1a;
+            margin-top: -5px;
             cursor: pointer;
-            border: 2px solid #0f172a;
         }
 
         input[type=range]::-webkit-slider-runnable-track {
             width: 100%;
-            height: 4px;
+            height: 2px;
             cursor: pointer;
-            background: #334155;
-            border-radius: 2px;
+            background: #ccc;
         }
 
-        .glass-panel {
-            background: rgba(15, 23, 42, 0.85);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+        select {
+            font-family: 'Times New Roman', Times, serif;
         }
 
-        .ai-glow {
-            box-shadow: 0 0 15px rgba(99, 102, 241, 0.3);
-            animation: pulse-glow 3s infinite;
+        button {
+            font-family: 'Times New Roman', Times, serif;
         }
 
-        @keyframes pulse-glow {
-
-            0%,
-            100% {
-                box-shadow: 0 0 15px rgba(99, 102, 241, 0.3);
-            }
-
-            50% {
-                box-shadow: 0 0 25px rgba(168, 85, 247, 0.5);
-            }
-        }
-
-        .live-connected {
-            color: #4ade80;
-            text-shadow: 0 0 10px rgba(74, 222, 128, 0.4);
+        ::selection {
+            background: #1a1a1a;
+            color: #fafafa;
         }
     </style>
 </head>
 
 <body>
-    <div id="root" class="h-screen w-screen flex flex-col"></div>
+    <div id="root" style="height: 100vh; width: 100vw; display: flex; flex-direction: column;"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef, useMemo, useCallback } = React;
+        const { useState, useEffect, useRef, useCallback } = React;
         const apiKey = "";
 
         // --- AUDIO ENGINE ---
@@ -132,25 +90,38 @@
                 this.onMidiOutputsChange = null;
                 this.initMidi();
 
-                // Sample cache: { 'sd:0': { buffer: AudioBuffer, loading: bool } }
                 this.sampleCache = {};
-                this.searchCache = {}; // { 'sd': [{ index, name, path }, ...] }
+                this.searchCache = {};
+                this.activeNotes = {};
+                this.activeMidiNotes = {}; // Track MIDI notes by ID: { id: { channel, pitch, offTimeout } }
 
-                // Active notes by id for exclusive playback
-                this.activeNotes = {}; // { id: { gain, source, stopTime } }
+                // Note event callback for visualization
+                this.onNoteEvent = null;
             }
 
             stopNoteById(id) {
                 const active = this.activeNotes[id];
                 if (active) {
                     try {
-                        // Quick fade out to avoid clicks
                         active.gain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.01);
                         if (active.source && active.source.stop) {
                             active.source.stop(this.ctx.currentTime + 0.05);
                         }
                     } catch (e) { }
                     delete this.activeNotes[id];
+                }
+            }
+
+            stopMidiNoteById(id) {
+                const active = this.activeMidiNotes[id];
+                if (active) {
+                    clearTimeout(active.offTimeout);
+                    const output = this.midiAccess?.outputs.get(this.selectedMidiOutput);
+                    if (output) {
+                        const noteOff = 0x80 | active.channel;
+                        try { output.send([noteOff, active.pitch, 0]); } catch (e) { }
+                    }
+                    delete this.activeMidiNotes[id];
                 }
             }
 
@@ -161,9 +132,7 @@
                 }
             }
 
-            // Parse and evaluate boolean search expressions
             parseBooleanSearch(query) {
-                // Tokenize the query
                 const tokens = [];
                 let current = '';
 
@@ -171,14 +140,13 @@
                     const char = query[i];
                     const nextChar = i + 1 < query.length ? query[i + 1] : '';
 
-                    // Check for || operator
                     if (char === '|' && nextChar === '|') {
                         if (current.trim()) {
                             tokens.push(current.trim());
                             current = '';
                         }
                         tokens.push('||');
-                        i++; // Skip next |
+                        i++;
                     } else if (char === '&') {
                         if (current.trim()) {
                             tokens.push(current.trim());
@@ -208,7 +176,6 @@
                 }
                 if (current.trim()) tokens.push(current.trim());
 
-                // Convert to postfix notation (Shunting Yard algorithm)
                 const output = [];
                 const operators = [];
                 const precedence = { '||': 1, '&': 2 };
@@ -227,9 +194,9 @@
                         while (operators.length > 0 && operators[operators.length - 1] !== '(') {
                             output.push(operators.pop());
                         }
-                        operators.pop(); // Remove '('
+                        operators.pop();
                     } else {
-                        output.push(token); // It's a search term
+                        output.push(token);
                     }
                 }
                 while (operators.length > 0) {
@@ -240,7 +207,6 @@
             }
 
             async evaluateBooleanSearch(postfix) {
-                // Fetch all unique search terms first
                 const uniqueTerms = new Set();
                 for (const token of postfix) {
                     if (token !== '&' && token !== '||') {
@@ -248,7 +214,6 @@
                     }
                 }
 
-                // Fetch results for each term
                 const termResults = {};
                 for (const term of uniqueTerms) {
                     if (!this.searchCache[term]) {
@@ -258,13 +223,11 @@
                     termResults[term] = this.searchCache[term];
                 }
 
-                // Evaluate postfix expression
                 const stack = [];
                 for (const token of postfix) {
                     if (token === '&') {
                         const right = stack.pop();
                         const left = stack.pop();
-                        // Intersection: samples that appear in both
                         const intersection = left.filter(l =>
                             right.some(r => r.path === l.path)
                         );
@@ -272,7 +235,6 @@
                     } else if (token === '||') {
                         const right = stack.pop();
                         const left = stack.pop();
-                        // Union: combine both, removing duplicates
                         const union = [...left];
                         for (const r of right) {
                             if (!union.some(u => u.path === r.path)) {
@@ -281,7 +243,6 @@
                         }
                         stack.push(union);
                     } else {
-                        // It's a search term
                         stack.push(termResults[token] || []);
                     }
                 }
@@ -293,21 +254,16 @@
                 const key = `${query}:${index}`;
                 if (this.sampleCache[key]) return this.sampleCache[key].buffer;
 
-                // Mark as loading
                 this.sampleCache[key] = { buffer: null, loading: true };
 
                 try {
                     let results;
 
-                    // Check if query contains boolean operators
                     if (query.includes('&') || query.includes('||') || query.includes('(')) {
-                        // Parse and evaluate boolean expression
                         const postfix = this.parseBooleanSearch(query);
                         results = await this.evaluateBooleanSearch(postfix);
-                        // Cache the boolean query results too
                         this.searchCache[query] = results;
                     } else {
-                        // Simple search
                         if (!this.searchCache[query]) {
                             const res = await fetch(`http://localhost:8080/search?q=${encodeURIComponent(query)}`);
                             this.searchCache[query] = await res.json();
@@ -321,7 +277,6 @@
                         return null;
                     }
 
-                    // Apply modulo wrapping for index
                     const wrappedIndex = index % results.length;
 
                     const sampleInfo = results[wrappedIndex];
@@ -343,7 +298,6 @@
             playSample(buffer, time, vol, pan, reverbAmount, pitch = 60) {
                 const source = this.ctx.createBufferSource();
                 source.buffer = buffer;
-                // Repitch: pitch 60 = original, higher = faster/higher, lower = slower/lower
                 source.playbackRate.value = Math.pow(2, (pitch - 60) / 12);
                 const gain = this.ctx.createGain();
                 const panner = this.ctx.createStereoPanner();
@@ -360,8 +314,7 @@
                 gain.gain.value = vol;
 
                 source.start(time);
-                const duration = buffer.duration / source.playbackRate.value;
-                setTimeout(() => { try { gain.disconnect(); } catch (e) { } }, duration * 1000 + 500);
+                source.onended = () => { try { gain.disconnect(); panner.disconnect(); revSend.disconnect(); } catch (e) { } };
             }
 
             async initMidi() {
@@ -381,8 +334,6 @@
                         this.midiOutputs.push({ id: output.id, name: output.name });
                     }
                 }
-                console.log('MIDI outputs found:', this.midiOutputs);
-                // Select first output if none selected or current selection no longer exists
                 if (this.midiOutputs.length > 0) {
                     const currentExists = this.midiOutputs.some(o => o.id === this.selectedMidiOutput);
                     if (!currentExists) {
@@ -391,7 +342,6 @@
                 } else {
                     this.selectedMidiOutput = null;
                 }
-                console.log('Selected MIDI output:', this.selectedMidiOutput);
                 if (this.onMidiOutputsChange) this.onMidiOutputsChange();
             }
 
@@ -441,7 +391,6 @@
                 return 440 * Math.pow(2, (m - 69) / 12);
             }
 
-            // --- SYNTHESIZED DRUMS ---
             triggerKick(time, vol, pan, reverbAmount) {
                 const osc = this.ctx.createOscillator();
                 const gain = this.ctx.createGain();
@@ -457,7 +406,7 @@
                 gain.gain.setValueAtTime(vol, time);
                 gain.gain.exponentialRampToValueAtTime(0.01, time + 0.5);
                 osc.start(time); osc.stop(time + 0.5);
-                setTimeout(() => { gain.disconnect(); }, 1000);
+                osc.onended = () => { try { gain.disconnect(); panner.disconnect(); revSend.disconnect(); } catch (e) { } };
             }
 
             triggerSnare(time, vol, pan, reverbAmount) {
@@ -479,7 +428,7 @@
 
                 noise.start(time); osc.start(time);
                 noise.stop(time + 0.2); osc.stop(time + 0.2);
-                setTimeout(() => { panner.disconnect(); }, 1000);
+                osc.onended = () => { try { panner.disconnect(); revSend.disconnect(); noiseGain.disconnect(); oscGain.disconnect(); } catch (e) { } };
             }
 
             triggerHiHat(time, vol, pan, reverbAmount, open = false) {
@@ -495,7 +444,7 @@
                 const duration = open ? 0.3 : 0.05;
                 gain.gain.setValueAtTime(vol * 0.8, time); gain.gain.exponentialRampToValueAtTime(0.01, time + duration);
                 source.start(time); source.stop(time + duration + 0.05);
-                setTimeout(() => { panner.disconnect(); }, 1000);
+                source.onended = () => { try { panner.disconnect(); gain.disconnect(); revSend.disconnect(); } catch (e) { } };
             }
 
             triggerClap(time, vol, pan, reverbAmount) {
@@ -514,7 +463,7 @@
                 gain.gain.exponentialRampToValueAtTime(0.1, t + 0.04); gain.gain.linearRampToValueAtTime(vol, t + 0.05);
                 gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
                 source.start(time); source.stop(time + 0.25);
-                setTimeout(() => { panner.disconnect(); }, 1000);
+                source.onended = () => { try { panner.disconnect(); gain.disconnect(); revSend.disconnect(); } catch (e) { } };
             }
 
             triggerTom(time, vol, pan, reverbAmount, pitch = 100) {
@@ -526,20 +475,19 @@
                 osc.frequency.setValueAtTime(pitch, time); osc.frequency.exponentialRampToValueAtTime(pitch * 0.5, time + 0.2);
                 gain.gain.setValueAtTime(vol, time); gain.gain.exponentialRampToValueAtTime(0.001, time + 0.2);
                 osc.start(time); osc.stop(time + 0.25);
-                setTimeout(() => { panner.disconnect(); }, 1000);
+                osc.onended = () => { try { panner.disconnect(); gain.disconnect(); revSend.disconnect(); } catch (e) { } };
             }
 
-            triggerMidi(channel, pitch, vol, duration, audioTime) {
-                console.log('triggerMidi called', { channel, pitch, vol, midiAccess: !!this.midiAccess, selectedOutput: this.selectedMidiOutput });
-                if (!this.midiAccess || !this.selectedMidiOutput) {
-                    console.warn('MIDI not ready', { midiAccess: !!this.midiAccess, selectedOutput: this.selectedMidiOutput });
-                    return;
-                }
+            triggerMidi(channel, pitch, vol, duration, audioTime, noteId) {
+                if (!this.midiAccess || !this.selectedMidiOutput) return;
                 const output = this.midiAccess.outputs.get(this.selectedMidiOutput);
-                if (!output) {
-                    console.warn('MIDI output not found:', this.selectedMidiOutput);
-                    return;
+                if (!output) return;
+
+                // If this note has an ID, cancel any previous note with same ID
+                if (noteId !== undefined) {
+                    this.stopMidiNoteById(noteId);
                 }
+
                 const velocity = Math.min(127, Math.max(0, Math.floor(vol * 127)));
                 const noteOn = 0x90 | channel;
                 const noteOff = 0x80 | channel;
@@ -548,9 +496,17 @@
                 const timeOffset = (audioTime - nowAudio) * 1000;
                 const timestamp = nowPerf + Math.max(0, timeOffset);
                 try {
-                    console.log('Sending MIDI', { noteOn: noteOn.toString(16), pitch, velocity, output: output.name });
                     output.send([noteOn, pitch, velocity], timestamp);
-                    output.send([noteOff, pitch, 0], timestamp + (duration * 1000));
+
+                    // Schedule note-off and track by ID
+                    const offTimeout = setTimeout(() => {
+                        try { output.send([noteOff, pitch, 0]); } catch (e) { }
+                        if (noteId !== undefined) delete this.activeMidiNotes[noteId];
+                    }, Math.max(0, timeOffset) + (duration * 1000));
+
+                    if (noteId !== undefined) {
+                        this.activeMidiNotes[noteId] = { channel, pitch, offTimeout };
+                    }
                 } catch (e) { console.error('MIDI send error', e); }
             }
 
@@ -561,16 +517,26 @@
                 const noteId = options.id;
                 let wave = options.wave || 'sine';
 
-                // Stop previous note with same id
                 if (noteId !== undefined) {
                     this.stopNoteById(noteId);
+                }
+
+                // Emit note event for visualization
+                if (this.onNoteEvent) {
+                    this.onNoteEvent({
+                        pitch: midi,
+                        velocity: vol,
+                        wave: wave,
+                        duration: durationSeconds,
+                        time: time
+                    });
                 }
 
                 if (typeof wave === 'string' && wave.startsWith('m:')) {
                     const chStr = wave.split(':')[1];
                     let ch = parseInt(chStr); if (isNaN(ch)) ch = 1;
                     const midiCh = (ch - 1) & 0x0F;
-                    this.triggerMidi(midiCh, midi, vol, durationSeconds, time);
+                    this.triggerMidi(midiCh, midi, vol, durationSeconds, time, noteId);
                     return;
                 }
 
@@ -588,7 +554,6 @@
                     return;
                 }
 
-                // Sample playback: 'sd:0' = first result for 'sd', 'kick:2' = third result for 'kick'
                 const sampleMatch = wave.match(/^([^:]+):(\d+)$/);
                 if (sampleMatch) {
                     const query = sampleMatch[1];
@@ -598,7 +563,6 @@
                     if (cached && cached.buffer) {
                         this.playSampleWithId(cached.buffer, time, vol, pan, reverbAmount, midi, noteId, durationSeconds, options.start);
                     } else if (!cached || !cached.loading) {
-                        // Trigger async load for next time
                         this.loadSample(query, index);
                     }
                     return;
@@ -633,18 +597,16 @@
                 const stopTime = time + durationSeconds + attack + decay + 0.2;
                 osc.stop(stopTime); if (fmIndex > 0) modulator.stop(stopTime);
 
-                // Register note by id for exclusive playback
                 if (noteId !== undefined) {
                     this.activeNotes[noteId] = { gain, source: osc };
                 }
 
-                const cleanupDelay = (stopTime - this.ctx.currentTime) * 1000 + 500;
-                setTimeout(() => {
+                osc.onended = () => {
                     try { gain.disconnect(); panner.disconnect(); revSend.disconnect(); } catch (e) { }
                     if (noteId !== undefined && this.activeNotes[noteId]?.source === osc) {
                         delete this.activeNotes[noteId];
                     }
-                }, cleanupDelay);
+                };
             }
 
             playSampleWithId(buffer, time, vol, pan, reverbAmount, pitch, noteId, requestedDuration, startPos) {
@@ -664,12 +626,10 @@
                 panner.pan.value = pan;
                 revSend.gain.value = reverbAmount;
 
-                // start position as fraction (0-1) of sample
                 const offsetSeconds = (startPos || 0) * buffer.duration;
                 const remainingDuration = (buffer.duration - offsetSeconds) / source.playbackRate.value;
-                const fadeTime = 0.02; // 20ms fade out
+                const fadeTime = 0.02;
 
-                // If duration specified and shorter than remaining sample, fade out and stop early
                 if (requestedDuration && requestedDuration < remainingDuration) {
                     gain.gain.setValueAtTime(vol, time);
                     gain.gain.setValueAtTime(vol, time + requestedDuration - fadeTime);
@@ -680,218 +640,233 @@
                     source.start(time, offsetSeconds);
                 }
 
-                // Register note by id for exclusive playback
                 if (noteId !== undefined) {
                     this.activeNotes[noteId] = { gain, source };
                 }
 
-                const actualDuration = requestedDuration && requestedDuration < remainingDuration ? requestedDuration : remainingDuration;
-                setTimeout(() => {
-                    try { gain.disconnect(); } catch (e) { }
+                source.onended = () => {
+                    try { gain.disconnect(); panner.disconnect(); revSend.disconnect(); } catch (e) { }
                     if (noteId !== undefined && this.activeNotes[noteId]?.source === source) {
                         delete this.activeNotes[noteId];
                     }
-                }, actualDuration * 1000 + 500);
+                };
             }
         }
 
-        const Icon = ({ name, size = 18, className }) => {
-            const icons = {
-                Play: <svg width={size} height={size} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>,
-                Square: <svg width={size} height={size} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>,
-                AlertTriangle: <svg width={size} height={size} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>,
-                Music: <svg width={size} height={size} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>,
-                Sparkles: <svg width={size} height={size} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></svg>,
-                X: <svg width={size} height={size} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>,
-                Loader2: <svg width={size} height={size} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>,
-                Link: <svg width={size} height={size} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
-            };
-            return icons[name] || null;
+        // Note name helper
+        const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+        const midiToNoteName = (midi) => {
+            const octave = Math.floor(midi / 12) - 1;
+            const note = NOTE_NAMES[midi % 12];
+            return `${note}${octave}`;
         };
 
-        // --- EVENT VISUALIZATION COMPONENT ---
-        const EventVisualization = ({ currentTick, isPlaying, userFuncRef, bpm }) => {
-            const canvasRef = useRef(null);
-            const eventsRef = useRef([]);
-            const lastTickRef = useRef(-1);
+        const isBlackKey = (midi) => {
+            const note = midi % 12;
+            return [1, 3, 6, 8, 10].includes(note);
+        };
 
-            // Color palette for different instrument types
-            const getEventColor = (note) => {
-                const wave = note.w || note.wave || 'sine';
-                if (wave === 'drums') {
-                    const p = note.p || 60;
-                    if (p === 36 || p === 35) return '#f43f5e'; // kick - rose
-                    if (p === 38 || p === 40) return '#f97316'; // snare - orange
-                    if (p === 39) return '#eab308'; // clap - yellow
-                    if (p === 42 || p === 44 || p === 46) return '#22d3ee'; // hihat - cyan
-                    return '#a855f7'; // toms - purple
-                }
-                if (wave === 'sawtooth') return '#10b981'; // emerald
-                if (wave === 'square') return '#6366f1'; // indigo
-                if (wave === 'triangle') return '#ec4899'; // pink
-                if (wave && wave.startsWith('m:')) return '#facc15'; // MIDI - yellow
-                return '#818cf8'; // sine - violet
+        // Get instrument display name
+        const getInstrumentName = (wave) => {
+            if (!wave) return 'sine';
+            if (wave === 'drums') return 'drums';
+            if (wave === 'sine') return 'sine';
+            if (wave === 'sawtooth') return 'saw';
+            if (wave === 'square') return 'square';
+            if (wave === 'triangle') return 'tri';
+            if (wave.startsWith('m:')) return `midi ${wave.split(':')[1]}`;
+            if (wave.includes(':')) return wave.split(':')[0];
+            return wave;
+        };
+
+        // Get color based on velocity (0-1)
+        const getIntensityColor = (velocity, wave) => {
+            const v = Math.min(1, Math.max(0, velocity));
+            // Hue based on instrument type
+            let hue = 0;
+            if (wave === 'drums') hue = 0; // red
+            else if (wave === 'sawtooth') hue = 30; // orange
+            else if (wave === 'square') hue = 200; // blue
+            else if (wave === 'triangle') hue = 280; // purple
+            else if (wave && wave.startsWith('m:')) hue = 60; // yellow
+            else hue = 120; // green for sine
+
+            const saturation = 70 + v * 30;
+            const lightness = 30 + v * 40;
+            return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+        };
+
+        // --- PIANO VISUALIZATION COMPONENT ---
+        const PianoVisualization = ({ activeNotes }) => {
+            // Show 3 octaves centered around middle C (C3 to B5 = MIDI 48-83)
+            const startMidi = 36;
+            const endMidi = 84;
+            const keys = [];
+
+            for (let midi = startMidi; midi < endMidi; midi++) {
+                keys.push(midi);
+            }
+
+            const whiteKeys = keys.filter(m => !isBlackKey(m));
+            const blackKeys = keys.filter(m => isBlackKey(m));
+
+            // Find active note for a key
+            const getActiveNote = (midi) => {
+                return activeNotes.find(n => n.pitch === midi);
             };
 
-            const getEventSize = (note) => {
-                const vol = note.v !== undefined ? note.v : 0.5;
-                const wave = note.w || note.wave || 'sine';
-                if (wave === 'drums') {
-                    const p = note.p || 60;
-                    if (p === 36 || p === 35) return 80 + vol * 60; // kick - big
-                    if (p === 38 || p === 40) return 50 + vol * 40; // snare
-                    return 20 + vol * 30; // hihat, etc
-                }
-                return 30 + vol * 50;
+            // Calculate black key position
+            const getBlackKeyPosition = (midi) => {
+                const note = midi % 12;
+                const octave = Math.floor(midi / 12);
+                const octaveStart = octave * 12;
+
+                // White keys before this black key in the octave
+                const whiteKeysBefore = [0, 2, 4, 5, 7, 9, 11].filter(n => n < note).length;
+                const totalWhiteKeysBefore = (octave - Math.floor(startMidi / 12)) * 7 + whiteKeysBefore;
+
+                // Offset based on which black key (between C#/D, D#/E, F#/G, G#/A, A#/B)
+                const offsets = { 1: -0.35, 3: 0.35, 6: -0.35, 8: 0, 10: 0.35 };
+                const offset = offsets[note] || 0;
+
+                return (totalWhiteKeysBefore - 0.5 + offset) * (100 / whiteKeys.length);
             };
-
-            useEffect(() => {
-                const canvas = canvasRef.current;
-                if (!canvas) return;
-                const ctx = canvas.getContext('2d');
-                let animationId;
-
-                const resize = () => {
-                    canvas.width = canvas.offsetWidth * window.devicePixelRatio;
-                    canvas.height = canvas.offsetHeight * window.devicePixelRatio;
-                    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-                };
-                resize();
-                window.addEventListener('resize', resize);
-
-                // Pre-calculate fade color once
-                const fadeStyle = 'rgba(15, 23, 42, 0.15)';
-                
-                const render = () => {
-                    const w = canvas.offsetWidth;
-                    const h = canvas.offsetHeight;
-
-                    // Fade effect
-                    ctx.fillStyle = fadeStyle;
-                    ctx.fillRect(0, 0, w, h);
-
-                    // Get new events if tick changed
-                    if (isPlaying && userFuncRef.current && currentTick !== lastTickRef.current) {
-                        lastTickRef.current = currentTick;
-                        try {
-                            const notes = userFuncRef.current(currentTick, currentTick * (60 / bpm) / 4);
-                            if (Array.isArray(notes)) {
-                                notes.forEach(note => {
-                                    const size = getEventSize(note);
-                                    const color = getEventColor(note);
-                                    const x = w / 2 + (Math.random() - 0.5) * w * 0.6;
-                                    const y = h / 2 + (Math.random() - 0.5) * h * 0.6;
-                                    const pan = note.x || 0;
-                                    const xOffset = pan * w * 0.3;
-
-                                    eventsRef.current.push({
-                                        x: x + xOffset,
-                                        y: y,
-                                        size: size,
-                                        maxSize: size,
-                                        color: color,
-                                        alpha: 1,
-                                        birth: Date.now(),
-                                        duration: (note.d || 0.1) * 1000 + 500,
-                                        pitch: note.p || 60
-                                    });
-                                });
-                            }
-                        } catch (e) { }
-                    }
-
-                    // Draw and update events
-                    const now = Date.now();
-                    eventsRef.current = eventsRef.current.filter(ev => {
-                        const age = now - ev.birth;
-                        const progress = age / ev.duration;
-                        if (progress > 1) return false;
-
-                        const expandProgress = Math.min(1, age / 100);
-                        const currentSize = ev.maxSize * (0.5 + 0.5 * expandProgress);
-                        const alpha = 1 - progress * progress;
-
-                        ctx.save();
-                        ctx.globalAlpha = alpha;
-
-                        // Glow effect
-                        const gradient = ctx.createRadialGradient(ev.x, ev.y, 0, ev.x, ev.y, currentSize);
-                        gradient.addColorStop(0, ev.color);
-                        gradient.addColorStop(0.4, ev.color + '80');
-                        gradient.addColorStop(1, 'transparent');
-
-                        ctx.beginPath();
-                        ctx.arc(ev.x, ev.y, currentSize, 0, Math.PI * 2);
-                        ctx.fillStyle = gradient;
-                        ctx.fill();
-
-                        // Inner bright core
-                        ctx.beginPath();
-                        ctx.arc(ev.x, ev.y, currentSize * 0.3, 0, Math.PI * 2);
-                        ctx.fillStyle = 'white';
-                        ctx.globalAlpha = alpha * 0.6;
-                        ctx.fill();
-
-                        ctx.restore();
-                        return true;
-                    });
-
-                    // Center beat indicator
-                    if (isPlaying) {
-                        const beatPhase = (currentTick % 4) / 4;
-                        const pulseSize = 10 + Math.sin(beatPhase * Math.PI * 2) * 5;
-                        ctx.save();
-                        ctx.globalAlpha = 0.3;
-                        ctx.beginPath();
-                        ctx.arc(w / 2, h / 2, pulseSize, 0, Math.PI * 2);
-                        ctx.strokeStyle = '#6366f1';
-                        ctx.lineWidth = 2;
-                        ctx.stroke();
-                        ctx.restore();
-                    }
-
-                    animationId = requestAnimationFrame(render);
-                };
-
-                render();
-
-                return () => {
-                    cancelAnimationFrame(animationId);
-                    window.removeEventListener('resize', resize);
-                };
-            }, [currentTick, isPlaying, userFuncRef, bpm]);
 
             return (
-                <div className="flex-1 relative bg-slate-950">
-                    <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
-                    <div className="absolute bottom-4 left-4 text-slate-600 text-xs font-mono">
-                        {isPlaying ? 'PLAYING' : 'STOPPED'}
+                <div style={{
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    background: '#fafafa',
+                    padding: '40px 20px 20px 20px'
+                }}>
+                    {/* Active notes display */}
+                    <div style={{
+                        height: '80px',
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '8px',
+                        marginBottom: '20px',
+                        alignContent: 'flex-start',
+                        justifyContent: 'center'
+                    }}>
+                        {activeNotes.map((note, i) => (
+                            <div key={i} style={{
+                                padding: '4px 12px',
+                                background: getIntensityColor(note.velocity, note.wave),
+                                color: '#fff',
+                                fontSize: '14px',
+                                display: 'flex',
+                                gap: '8px',
+                                alignItems: 'center'
+                            }}>
+                                <span style={{ fontWeight: 'bold' }}>{midiToNoteName(note.pitch)}</span>
+                                <span style={{ opacity: 0.8 }}>{getInstrumentName(note.wave)}</span>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Piano keyboard */}
+                    <div style={{
+                        flex: 1,
+                        display: 'flex',
+                        justifyContent: 'center',
+                        alignItems: 'flex-end',
+                        paddingBottom: '40px'
+                    }}>
+                        <div style={{
+                            position: 'relative',
+                            height: '180px',
+                            width: '100%',
+                            maxWidth: '900px',
+                            display: 'flex'
+                        }}>
+                            {/* White keys */}
+                            {whiteKeys.map((midi, i) => {
+                                const active = getActiveNote(midi);
+                                return (
+                                    <div key={midi} style={{
+                                        flex: 1,
+                                        height: '100%',
+                                        background: active ? getIntensityColor(active.velocity, active.wave) : '#fff',
+                                        border: '1px solid #1a1a1a',
+                                        marginLeft: i === 0 ? 0 : '-1px',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        justifyContent: 'flex-end',
+                                        alignItems: 'center',
+                                        paddingBottom: '8px',
+                                        transition: 'background 0.05s'
+                                    }}>
+                                        {active && (
+                                            <span style={{
+                                                fontSize: '10px',
+                                                color: '#fff',
+                                                textShadow: '0 0 2px rgba(0,0,0,0.5)'
+                                            }}>
+                                                {getInstrumentName(active.wave)}
+                                            </span>
+                                        )}
+                                        <span style={{
+                                            fontSize: '9px',
+                                            color: active ? '#fff' : '#999',
+                                            marginTop: '2px'
+                                        }}>
+                                            {midiToNoteName(midi)}
+                                        </span>
+                                    </div>
+                                );
+                            })}
+
+                            {/* Black keys */}
+                            {blackKeys.map((midi) => {
+                                const active = getActiveNote(midi);
+                                const left = getBlackKeyPosition(midi);
+                                return (
+                                    <div key={midi} style={{
+                                        position: 'absolute',
+                                        left: `${left}%`,
+                                        width: `${60 / whiteKeys.length}%`,
+                                        height: '60%',
+                                        background: active ? getIntensityColor(active.velocity, active.wave) : '#1a1a1a',
+                                        border: '1px solid #000',
+                                        zIndex: 1,
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        justifyContent: 'flex-end',
+                                        alignItems: 'center',
+                                        paddingBottom: '4px',
+                                        transition: 'background 0.05s'
+                                    }}>
+                                        {active && (
+                                            <span style={{
+                                                fontSize: '8px',
+                                                color: '#fff'
+                                            }}>
+                                                {getInstrumentName(active.wave)}
+                                            </span>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
                 </div>
             );
         };
 
-        const DEFAULT_CODE = `// Live Coding Music Environment
-// Returns array of note objects.
-// t: tick (16th notes), s: time (seconds)
-// p: pitch (MIDI), d: duration (sec), v: vol, x: pan (-1 to 1)
-// o: offset (in ticks), start: sample position (0-1)
-// id: exclusive id (only one note per id plays at a time)
-// w: wave ('sine','sawtooth','square','drums' OR 'm:1')
+        const DEFAULT_CODE = `// t: tick, s: seconds
+// p: pitch, d: duration, v: volume, x: pan
+// w: wave (sine, sawtooth, square, drums, m:1)
 
 return (t, s) => {
   const notes = [];
   
-  // DRUMS
   if (t % 4 === 0) notes.push({ p: 36, w: 'drums', v: 0.9 });
   if (t % 8 === 4) notes.push({ p: 38, w: 'drums', v: 0.8 });
-  if (t % 2 === 0) { 
-     const isOff = t % 4 === 2;
-     notes.push({ p: 42, w: 'drums', v: isOff ? 0.3 : 0.2, o: isOff ? 0.15 : 0 });
-  }
+  if (t % 2 === 0) notes.push({ p: 42, w: 'drums', v: 0.3 });
 
-  // BASS
-  if (t % 16 === 0) notes.push({ p: 36, d: 0.4, w: 'sawtooth', c: 200, v: 0.6 });
+  if (t % 16 === 0) notes.push({ p: 36, d: 0.4, w: 'sawtooth', v: 0.6 });
 
   return notes;
 };
@@ -905,22 +880,36 @@ return (t, s) => {
             const [volume, setVolume] = useState(0.3);
             const [currentTick, setCurrentTick] = useState(0);
             const [isLiveLinked, setIsLiveLinked] = useState(false);
-            const [showAI, setShowAI] = useState(false);
-            const [aiPrompt, setAiPrompt] = useState("");
-            const [isGenerating, setIsGenerating] = useState(false);
             const [midiOutputs, setMidiOutputs] = useState([]);
             const [selectedMidiOutput, setSelectedMidiOutput] = useState(null);
-            const promptInputRef = useRef(null);
+            const [activeNotes, setActiveNotes] = useState([]);
 
             const engineRef = useRef(null);
             const userFuncRef = useRef(null);
-            const timerIDRef = useRef(null);
+            const workerRef = useRef(null);
             const nextNoteTimeRef = useRef(0);
             const tickCounterRef = useRef(0);
-            const lookahead = 25.0;
             const scheduleAheadTime = 0.1;
 
-            // Live Link Logic
+            useEffect(() => {
+                const workerCode = `
+                    let intervalId = null;
+                    self.onmessage = function(e) {
+                        if (e.data === 'start') {
+                            intervalId = setInterval(() => self.postMessage('tick'), 25);
+                        } else if (e.data === 'stop') {
+                            clearInterval(intervalId);
+                            intervalId = null;
+                        }
+                    };
+                `;
+                const blob = new Blob([workerCode], { type: 'application/javascript' });
+                workerRef.current = new Worker(URL.createObjectURL(blob));
+                return () => {
+                    workerRef.current?.terminate();
+                };
+            }, []);
+
             useEffect(() => {
                 let evtSource;
                 const connectLiveLink = () => {
@@ -935,7 +924,6 @@ return (t, s) => {
                     evtSource.onerror = () => {
                         setIsLiveLinked(false);
                         evtSource.close();
-                        // Retry every 2 seconds
                         setTimeout(connectLiveLink, 2000);
                     };
                     evtSource.onopen = () => setIsLiveLinked(true);
@@ -950,7 +938,17 @@ return (t, s) => {
                     setMidiOutputs([...engineRef.current.getMidiOutputs()]);
                     setSelectedMidiOutput(engineRef.current.getSelectedMidiOutput());
                 };
-                // Initial check after a short delay for MIDI to initialize
+
+                // Set up note event callback for visualization
+                engineRef.current.onNoteEvent = (note) => {
+                    setActiveNotes(prev => {
+                        const now = Date.now();
+                        const duration = (note.duration || 0.1) * 1000 + 100;
+                        const newNote = { ...note, startTime: now, endTime: now + duration };
+                        return [...prev.filter(n => n.endTime > now), newNote];
+                    });
+                };
+
                 setTimeout(() => {
                     if (engineRef.current) {
                         setMidiOutputs([...engineRef.current.getMidiOutputs()]);
@@ -960,15 +958,19 @@ return (t, s) => {
                 return () => engineRef.current?.ctx?.close();
             }, []);
 
+            // Clean up expired notes periodically
             useEffect(() => {
-                if (showAI && promptInputRef.current) promptInputRef.current.focus();
-            }, [showAI]);
+                const interval = setInterval(() => {
+                    const now = Date.now();
+                    setActiveNotes(prev => prev.filter(n => n.endTime > now));
+                }, 50);
+                return () => clearInterval(interval);
+            }, []);
 
             useEffect(() => engineRef.current?.setVolume(volume), [volume]);
 
             useEffect(() => {
                 try {
-                    // eslint-disable-next-line no-new-func
                     const createFunction = new Function(code);
                     const userFunc = createFunction();
                     if (typeof userFunc === 'function') {
@@ -977,29 +979,6 @@ return (t, s) => {
                     } else { throw new Error("Code must return a function."); }
                 } catch (e) { setError(e.message); }
             }, [code]);
-
-            const handleAIGenerate = async (e) => {
-                e.preventDefault();
-                if (!aiPrompt.trim()) return;
-                setIsGenerating(true);
-                try {
-                    const systemPrompt = `You are a creative music coding assistant. Return only Javascript code. Current code: ${code}. Request: ${aiPrompt}`;
-                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ contents: [{ parts: [{ text: systemPrompt }] }] })
-                    });
-                    if (!response.ok) throw new Error("AI request failed");
-                    const data = await response.json();
-                    let newCode = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                    if (newCode) {
-                        newCode = newCode.replace(/```javascript/g, '').replace(/```/g, '').trim();
-                        setCode(newCode);
-                        setShowAI(false);
-                        setAiPrompt("");
-                    }
-                } catch (e) { setError("AI Error: " + e.message); } finally { setIsGenerating(false); }
-            };
 
             const scheduleNote = (tickNumber, time) => {
                 if (userFuncRef.current && engineRef.current) {
@@ -1018,70 +997,99 @@ return (t, s) => {
                 }
             };
 
-            const scheduler = () => {
+            const scheduler = useCallback(() => {
                 if (!engineRef.current) return;
                 while (nextNoteTimeRef.current < engineRef.current.ctx.currentTime + scheduleAheadTime) {
                     scheduleNote(tickCounterRef.current, nextNoteTimeRef.current);
                     nextNoteTimeRef.current += (60.0 / bpm) / 4.0;
                     tickCounterRef.current++;
                 }
-                // Throttle UI updates to ~15fps instead of every scheduler call
                 if (tickCounterRef.current % 4 === 0) {
                     setCurrentTick(tickCounterRef.current);
                 }
-                timerIDRef.current = setTimeout(scheduler, lookahead);
-            };
+            }, [bpm]);
+
+            useEffect(() => {
+                if (!workerRef.current) return;
+                workerRef.current.onmessage = () => {
+                    if (isPlaying) scheduler();
+                };
+            }, [isPlaying, scheduler]);
 
             const togglePlay = () => {
-                if (isPlaying) { clearTimeout(timerIDRef.current); setIsPlaying(false); }
-                else {
+                if (isPlaying) {
+                    workerRef.current?.postMessage('stop');
+                    setIsPlaying(false);
+                    setActiveNotes([]);
+                } else {
                     if (engineRef.current.ctx.state === 'suspended') engineRef.current.ctx.resume();
                     tickCounterRef.current = 0;
                     nextNoteTimeRef.current = engineRef.current.ctx.currentTime + 0.05;
                     setIsPlaying(true);
-                    scheduler();
+                    workerRef.current?.postMessage('start');
                 }
             };
 
-            const tapeOffset = -(currentTick * 20) % 320;
-
             return (
-                <div className="flex flex-col h-full text-slate-300 relative">
-                    <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900 z-10">
-                        <div className="flex items-center gap-4">
-                            <div className="flex items-center gap-2 text-indigo-400">
-                                <Icon name="Music" className="animate-pulse" />
-                                <span className="font-bold tracking-wider">SONIC<span className="text-white">CANVAS</span></span>
-                            </div>
-                            <button onClick={togglePlay} className={`flex items-center gap-2 px-4 py-2 rounded-md font-bold transition-all ${isPlaying ? 'bg-rose-500/20 text-rose-400' : 'bg-indigo-600 text-white'}`}>
-                                {isPlaying ? <Icon name="Square" size={16} /> : <Icon name="Play" size={16} />} {isPlaying ? "STOP" : "RUN"}
+                <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                    {/* Header */}
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '16px 24px',
+                        borderBottom: '1px solid #ddd'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+                            <span style={{ fontSize: '18px', letterSpacing: '0.1em' }}>livecoding</span>
+
+                            <button
+                                onClick={togglePlay}
+                                style={{
+                                    padding: '8px 20px',
+                                    background: isPlaying ? '#1a1a1a' : '#fff',
+                                    color: isPlaying ? '#fff' : '#1a1a1a',
+                                    border: '1px solid #1a1a1a',
+                                    cursor: 'pointer',
+                                    fontSize: '14px'
+                                }}
+                            >
+                                {isPlaying ? "stop" : "play"}
                             </button>
-                            <button onClick={() => setShowAI(true)} className="flex items-center gap-2 px-3 py-2 rounded-md font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-lg">
-                                <Icon name="Sparkles" size={16} /> AI Gen
-                            </button>
+
                             {isLiveLinked && (
-                                <div className="flex items-center gap-2 px-3 py-1 rounded bg-slate-800 border border-emerald-500/30 text-emerald-400 text-xs font-mono">
-                                    <Icon name="Link" size={12} /> VS CODE LINKED
-                                </div>
+                                <span style={{ fontSize: '12px', color: '#666' }}>linked</span>
                             )}
-                            <div className="hidden md:flex flex-col text-xs gap-1 w-32">
-                                <div className="flex justify-between text-slate-500"><span>BPM</span><span>{bpm}</span></div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', width: '100px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#666' }}>
+                                    <span>bpm</span><span>{bpm}</span>
+                                </div>
                                 <input type="range" min="60" max="200" value={bpm} onChange={(e) => setBpm(Number(e.target.value))} />
                             </div>
-                            <div className="hidden md:flex flex-col text-xs gap-1 w-32">
-                                <div className="flex justify-between text-slate-500"><span>VOL</span><span>{Math.round(volume * 100)}%</span></div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', width: '100px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#666' }}>
+                                    <span>vol</span><span>{Math.round(volume * 100)}%</span>
+                                </div>
                                 <input type="range" min="0" max="1" step="0.01" value={volume} onChange={(e) => setVolume(Number(e.target.value))} />
                             </div>
+
                             {midiOutputs.length > 0 && (
-                                <div className="hidden md:flex flex-col text-xs gap-1">
-                                    <div className="text-slate-500">MIDI OUT</div>
-                                    <select 
-                                        value={selectedMidiOutput || ''} 
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                    <span style={{ fontSize: '11px', color: '#666' }}>midi</span>
+                                    <select
+                                        value={selectedMidiOutput || ''}
                                         onChange={(e) => {
                                             setSelectedMidiOutput(e.target.value);
                                             engineRef.current?.setMidiOutput(e.target.value);
                                         }}
-                                        className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-300 text-xs"
+                                        style={{
+                                            background: '#fff',
+                                            border: '1px solid #ccc',
+                                            padding: '4px 8px',
+                                            fontSize: '12px'
+                                        }}
                                     >
                                         {midiOutputs.map(o => (
                                             <option key={o.id} value={o.id}>{o.name}</option>
@@ -1090,39 +1098,17 @@ return (t, s) => {
                                 </div>
                             )}
                         </div>
-                        {error && <div className="flex items-center gap-2 text-rose-400 bg-rose-400/10 px-3 py-1.5 rounded text-xs border border-rose-400/20">{error}</div>}
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                            {error && (
+                                <span style={{ fontSize: '12px', color: '#c00' }}>{error}</span>
+                            )}
+                            <span style={{ fontSize: '12px', color: '#999' }}>tick {currentTick}</span>
+                        </div>
                     </div>
 
-                    <EventVisualization currentTick={currentTick} isPlaying={isPlaying} userFuncRef={userFuncRef} bpm={bpm} />
-
-                    {showAI && (
-                        <div className="absolute inset-0 z-50 flex items-start justify-center pt-24 bg-slate-900/50 backdrop-blur-sm">
-                            <div className="w-[600px] glass-panel rounded-xl shadow-2xl p-6 transform ai-glow">
-                                <div className="flex justify-between items-center mb-4">
-                                    <h2 className="text-lg font-bold text-white flex gap-2"><Icon name="Sparkles" /> Gemini Music Assistant</h2>
-                                    <button onClick={() => setShowAI(false)} className="text-slate-400 hover:text-white"><Icon name="X" /></button>
-                                </div>
-                                <form onSubmit={handleAIGenerate}>
-                                    <div className="relative">
-                                        <input ref={promptInputRef} type="text" value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)} placeholder="E.g., 'Make the beat more complex'" className="w-full bg-slate-900/80 border border-slate-700 rounded-lg py-4 px-4 text-white focus:outline-none focus:border-purple-500" disabled={isGenerating} />
-                                        <div className="absolute right-3 top-3">{isGenerating ? <div className="animate-spin text-purple-500"><Icon name="Loader2" size={24} /></div> : <span className="text-xs text-slate-600 font-mono mt-2 block">Enter</span>}</div>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="h-16 bg-slate-900 border-t border-slate-800 flex items-center relative overflow-hidden tape-container">
-                        <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-rose-500 z-20 shadow-[0_0_10px_rgba(244,63,94,0.8)]"></div>
-                        <div className="absolute top-0 bottom-0 flex items-center transition-transform duration-100 ease-linear" style={{ transform: `translateX(calc(50vw + ${tapeOffset}px))`, width: '10000px' }}>
-                            {Array.from({ length: 100 }).map((_, i) => (
-                                <div key={i} className={`shrink-0 flex flex-col items-center justify-end h-full pb-2 ${i % 16 === 0 ? 'w-5 border-l border-slate-600' : 'w-5 border-l border-slate-800'}`} style={{ width: '20px' }}>
-                                    <div className={`w-full ${i % 16 === 0 ? 'h-3 bg-slate-500' : (i % 4 === 0 ? 'h-2 bg-slate-700' : 'h-1 bg-slate-800')}`}></div>
-                                </div>
-                            ))}
-                        </div>
-                        <div className="absolute right-4 bottom-2 text-xs text-slate-600 font-mono z-30">TICK: {currentTick}</div>
-                    </div>
+                    {/* Piano visualization */}
+                    <PianoVisualization activeNotes={activeNotes} />
                 </div>
             );
         };
