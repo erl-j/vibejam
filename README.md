@@ -1,80 +1,49 @@
 # Neurosymbolic Music Generation
 
-"Neurosymbolic" in this case is a fancy way of saying: have an LLM write code that represents music. The neural part is the language model. The symbolic part is JavaScript.
-
-*"Just clone this repo and load it into some llm augmented code editor and you will have the time of your life." Ä
-
-[Demo video](https://www.youtube.com/watch?v=vkNX7z25aWg)
+[![Demo Video](https://img.youtube.com/vi/vkNX7z25aWg/maxresdefault.jpg)](https://www.youtube.com/watch?v=vkNX7z25aWg)
 
 Browser-based system for AI-assisted music composition. LLMs write JavaScript that generates notes in real-time.
 
+Clone this repo, load it into an LLM-augmented code editor, and start jamming.
 
+## Why JavaScript
 
+Language models understand JavaScript deeply. MIDI is a binary protocol that appears rarely in training data. This asymmetry makes JS a superior symbolic representation:
 
-
-## Why JavaScript for Music Generation
-
-Language models are trained on massive amounts of code. They understand JavaScript deeply - its patterns, abstractions, and idioms. MIDI, by contrast, is a binary protocol that appears rarely in training data.
-
-This asymmetry makes JS a superior symbolic representation for LLM-driven music generation:
-
-1. **Native fluency** - LLMs can write, debug, and reason about JS code naturally. They struggle with raw MIDI bytes or piano roll coordinates.
-
-2. **Abstraction creation** - The model can define helper functions, chord builders, rhythm generators, scales - whatever abstractions fit the musical idea. These abstractions are readable and editable by humans.
-
-3. **Controllability** - Want a funkier hi-hat pattern? Ask for it. Want the bass to follow the chord roots? Describe it. The code-as-music paradigm lets you communicate intent at any level of abstraction, from "make it groovier" to "add a triplet fill on beat 3."
-
-4. **Iterative refinement** - You can take LLM-generated code, tweak a few lines, and ask for more. The conversation happens in a shared language both parties understand.
-
-This approach outperforms other symbolic music generation systems in terms of control and expressiveness. The model isn't predicting the next MIDI event - it's writing a program that generates music, with all the compositional structure that implies.
-
-### Why JS beats other representations
+- **Native fluency** - LLMs write and debug JS naturally
+- **Abstraction creation** - helper functions, chord builders, rhythm generators
+- **Controllability** - communicate intent at any level, from "make it groovier" to "add triplets on beat 3"
+- **Iterative refinement** - tweak code, ask for more, repeat
 
 | Representation | Problem |
 |----------------|---------|
-| **MIDI** | Binary format, rare in training data. LLMs hallucinate bytes. No abstraction layer. |
-| **MusicXML** | Verbose XML with music-specific semantics. LLMs can parse it but generate malformed structures. |
-| **ABC notation** | Compact but obscure. Limited training examples. No composability. |
-| **Piano roll / token sequences** | Flat structure. "Next token" prediction can't express "repeat this but up a fifth" or "add fills every 4 bars." |
-| **Custom DSLs** | Model has never seen them. Zero-shot performance is garbage. |
+| **MIDI** | Binary format, rare in training data. No abstraction layer. |
+| **MusicXML** | Verbose XML. LLMs generate malformed structures. |
+| **ABC notation** | Obscure, limited training examples, no composability. |
+| **Piano roll** | Flat structure. Can't express "repeat this up a fifth." |
+| **Custom DSLs** | Zero-shot performance is garbage. |
 
-JS wins because:
-
-- **Massive training data** - every model has seen millions of JS files
-- **Turing complete** - loops, conditionals, functions, closures. You can express any musical structure
-- **Self-documenting** - variable names and comments carry intent
-- **Composable** - build small pieces, combine them. The model understands function composition
-- **Debuggable** - syntax errors have line numbers. Logic errors are readable code
-
-Other AI music systems force the model to learn a new representation or predict tokens in a domain it barely understands. This system meets the model where it already lives: in code.
+JS wins: massive training data, Turing complete, self-documenting, composable, debuggable.
 
 ## Setup
 
 **Standalone (no server):**
-Open `livecoding.html` directly in a browser. Edit the `DEFAULT_CODE` constant in the file to change the music. Works with synths and built-in drums only.
+Open `livecoding.html` directly in a browser. Edit `DEFAULT_CODE` to change the music.
 
 **With server (hot-reload + samples):**
-1. Configure sample directory in `server.js`:
-```js
-const SAMPLES_DIR = '/path/to/your/samples';
-```
+1. Configure sample directory in `server.js`
+2. `node server.js`
+3. Open `livecoding.html`
 
-2. Start the server:
-```bash
-node server.js
-```
-
-3. Open `livecoding.html` in a browser
-
-The server watches `music.js` for changes and hot-reloads automatically. Also enables sample search/playback.
+The server watches `music.js` and hot-reloads on save.
 
 ## API
 
-Your code must return a function `(t, s) => notes[]` where:
+Your code returns a function `(t, s) => notes[]` where:
 - `t` = tick count (16th notes)
 - `s` = time in seconds
 
-Each note object can have:
+Note properties:
 
 | Key | Description | Default |
 |-----|-------------|---------|
@@ -92,18 +61,13 @@ Each note object can have:
 
 ## Instruments (`w` parameter)
 
-**Synthesizers:**
-- `sine`, `sawtooth`, `square`, `triangle`
+**Synths:** `sine`, `sawtooth`, `square`, `triangle`
 
-**Built-in drums:**
-- `drums` with MIDI notes: 36=kick, 38=snare, 42=hihat, 46=open hihat, 39=clap
+**Built-in drums:** `drums` with MIDI notes: 36=kick, 38=snare, 42=hihat, 46=open hihat, 39=clap
 
-**Samples:**
-- `query:index` - search samples and pick by index (e.g. `kick:0`, `hat:5`)
-- Boolean search: `acoustic & snare:0`, `hat || cymbal:3`
+**Samples:** `query:index` (e.g. `kick:0`, `hat:5`). Boolean search: `acoustic & snare:0`
 
-**MIDI output:**
-- `m:channel` - send to external MIDI (e.g. `m:1` for channel 1)
+**MIDI output:** `m:channel` (e.g. `m:1` for channel 1)
 
 ## Example
 
@@ -141,3 +105,24 @@ return (t, s) => {
 - MIDI output support
 - Sample search with boolean operators
 - Per-note exclusive IDs (retrigger/cut behavior)
+
+## Inspirations
+
+- [DreamCoder](https://arxiv.org/abs/2006.08381) - Kevin Ellis et al. Program synthesis through wake-sleep library learning.
+- [Barbarians at the Gate](https://arxiv.org/abs/2510.06189) - AI-driven research for systems. Iterative generate-evaluate-refine loops with LLMs.
+- [Barbarians at the Gate](https://www.imdb.com/title/tt0106356/) (1993) - James Garner plays Ross Johnson. Unrelated but excellent.
+- [Strudel](https://strudel.cc/) - Live coding music in the browser. Major inspiration for the UI and approach.
+
+## Cite
+
+```bibtex
+@software{livecoding-js,
+  author = {Jonason, Nicolas},
+  title = {Neurosymbolic Music Generation},
+  url = {https://github.com/nicolasjonason/livecoding-js}
+}
+```
+
+---
+
+*Vibecoded: the human pointed, the LLM typed.*
