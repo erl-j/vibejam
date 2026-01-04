@@ -121,6 +121,10 @@ return (t, s) => {
 - [Barbarians at the Gate](https://www.imdb.com/title/tt0106356/) (1993) - James Garner plays Ross Johnson. Unrelated but excellent.
 - [Strudel](https://strudel.cc/) - Live coding music in the browser. Major inspiration for the UI and approach.
 
+## Other related work:
+
+- [Neuro-Symbolic Composition of Music with Talking Points](https://computationalcreativity.net/iccc23/papers/ICCC-2023_paper_45.pdf) Simon Colton et al.
+
 ## Cite
 
 ```bibtex
