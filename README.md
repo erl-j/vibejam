@@ -7,7 +7,7 @@
 
 Coding large language models cooks every domain specific symbolic music generation model out there if we let them express music as code.
 Why train a bespoke neural network on MIDI files when LLMS already understands rhythm, harmony, and structure through code? 
-To demonstrate this, this repository contains a  browserbased system for music composition. 
+To demonstrate this, this repository contains a  browser-based system for music composition. 
 Clone this repo, load it into an LLM-augmented code editor (I like cursor & claude opus 4.5), and start jamming.
 
 [![Demo Video](https://img.youtube.com/vi/vkNX7z25aWg/maxresdefault.jpg)](https://www.youtube.com/watch?v=vkNX7z25aWg)
