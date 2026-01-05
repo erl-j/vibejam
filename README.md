@@ -1,4 +1,4 @@
-# Vibe Jam
+# vibejam
 Formely Neurosymbolic Music Generation, Vibe Musicing, Funktion.js
 
 [![great work](https://img.shields.io/badge/great-work-gold)](https://github.com/erl-j/neurosymbolic-music-generation)
