@@ -129,10 +129,10 @@ return (t, s) => {
 ## Cite
 
 ```bibtex
-@software{neurosymbolic-music-generation,
+@software{vibejam,
   author = {Jonason, Nicolas},
-  title = {Neurosymbolic Music Generation},
-  url = {https://github.com/erl-j/neurosymbolic-music-generation}
+  title = {vibejam},
+  url = {https://github.com/erl-j/vibejam}
 }
 ```
 
