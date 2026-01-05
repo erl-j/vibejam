@@ -1,4 +1,5 @@
-# Neurosymbolic Music Generation - "Vibe Musicing"
+# Vibe Jam
+Formely Neurosymbolic Music Generation, Vibe Musicing, Funktion.js
 
 [![great work](https://img.shields.io/badge/great-work-gold)](https://github.com/erl-j/neurosymbolic-music-generation)
 [![YouTube](https://img.shields.io/badge/YouTube-demo-red?logo=youtube)](https://www.youtube.com/watch?v=vkNX7z25aWg)
