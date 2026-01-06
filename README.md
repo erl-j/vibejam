@@ -23,7 +23,7 @@ Clone this repo, load it into an LLM-augmented code editor, and start jamming.
 | `server.js` | Optional. Enables hot-reload and sample loading. |
 | `pieces/` | Example compositions to learn from or remix. |
 
-## Why JavaScript
+### Why JavaScript
 
 Language models understand JavaScript deeply. MIDI is a binary protocol that appears rarely in training data. This asymmetry makes JS a superior symbolic representation:
 
@@ -42,7 +42,7 @@ Language models understand JavaScript deeply. MIDI is a binary protocol that app
 
 JS wins: massive training data, Turing complete, self-documenting, composable, debuggable.
 
-## Setup
+### Setup
 
 **Standalone (no server):**
 Open `livecoding.html` directly in a browser. Edit `DEFAULT_CODE` to change the music.
@@ -54,7 +54,7 @@ Open `livecoding.html` directly in a browser. Edit `DEFAULT_CODE` to change the 
 
 The server watches `music.js` and hot-reloads on save.
 
-## API
+### API
 
 Your code returns a function `(t, s) => notes[]` where:
 - `t` = tick count (16th notes)
@@ -76,7 +76,7 @@ Note properties:
 | `id` | exclusive note id | - |
 | `start` | sample start position (0-1) | 0 |
 
-## Instruments (`w` parameter)
+### Instruments (`w` parameter)
 
 **Synths:** `sine`, `sawtooth`, `square`, `triangle`
 
@@ -86,7 +86,7 @@ Note properties:
 
 **MIDI output:** `m:channel` (e.g. `m:1` for channel 1)
 
-## Example
+### Example
 
 ```js
 return (t, s) => {
